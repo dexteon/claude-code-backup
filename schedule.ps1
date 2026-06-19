@@ -1,7 +1,7 @@
-# claude-code-backup — schedule.ps1
+# claude-code-backup - schedule.ps1
 # Registers a Windows Scheduled Task that runs backup.sh daily.
 #
-# Usage (in PowerShell, as your user — no admin needed for per-user tasks):
+# Usage (in PowerShell, as your user - no admin needed for per-user tasks):
 #     .\schedule.ps1                    # default: daily at 09:00
 #     .\schedule.ps1 -Hour 14 -Minute 30
 #     .\schedule.ps1 -Uninstall         # remove the task
@@ -12,7 +12,7 @@ param(
     [string]$TaskName = "ClaudeCodeBackup",
     [int]$Hour = 9,
     [int]$Minute = 0,
-    [int]$IntervalHours = 0,       # 0 = daily at HH:MM, >0 = repeat every N hours
+    [int]$IntervalHours = 0,
     [switch]$Uninstall
 )
 
@@ -44,18 +44,24 @@ if ($Uninstall) {
     try {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
         Write-Host "[schedule] removed."
-    } catch [Microsoft.PowerShell.Commands.ScheduleTaskNotFoundException] {
-        Write-Host "[schedule] task not present — nothing to remove."
+    } catch {
+        Write-Host "[schedule] task not present or already removed."
     }
     return
 }
 
 # --- build action ----------------------------------------------------------
-# Convert Windows path -> bash path (C:\foo -> /c/foo)
-$BashScriptDir = $ScriptDir -replace '\\','/' -replace '^([A-Z]):', '/$1'.ToLower()
+# Convert Windows path to bash path (C:\foo -> /c/foo) for the bash -lc command.
+$Drive = $ScriptDir.Substring(0,1).ToLower()
+$Rest  = $ScriptDir.Substring(2) -replace '\\','/'
+$BashScriptDir = "/$Drive$Rest"
+
+# Single-quoted bash command - no need to escape && since it is inside the
+# string passed as one argument to bash -lc.
 $BashCmd = "cd '$BashScriptDir' && bash ./backup.sh >> '$BashScriptDir/backup.log' 2>&1"
 
-$Action    = New-ScheduledTaskAction -Execute $GitBash -Argument "-lc '$BashCmd'"
+# Pass bash -lc "<cmd>" as the scheduled task action.
+$Action    = New-ScheduledTaskAction -Execute $GitBash -Argument "-lc `"$BashCmd`""
 $Settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
              -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 
@@ -67,11 +73,12 @@ if ($IntervalHours -gt 0) {
                  -RepetitionInterval (New-TimeSpan -Hours $IntervalHours)
     Write-Host "[schedule] trigger: every $IntervalHours h (first $StartAt)"
 } else {
-    $Trigger   = New-ScheduledTaskTrigger -Daily -At "$($Hour.ToString('00')):$($Minute.ToString('00'))"
-    Write-Host "[schedule] trigger: daily at $($Hour):$($Minute.ToString('00'))"
+    $TimeStr = "{0:00}:{1:00}" -f $Hour, $Minute
+    $Trigger = New-ScheduledTaskTrigger -Daily -At $TimeStr
+    Write-Host "[schedule] trigger: daily at $TimeStr"
 }
 
-# --- principal (current user, interactive — no password storage) -----------
+# --- principal (current user, interactive - no password storage) -----------
 $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
 # --- register --------------------------------------------------------------
@@ -81,7 +88,8 @@ if ($Existing) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
-    -Principal $Principal -Settings $Settings -Description "Backs up ~/.claude and ~/.openclaude to private GitHub repos" | Out-Null
+    -Principal $Principal -Settings $Settings `
+    -Description "Backs up ~/.claude and ~/.openclaude to private GitHub repos" | Out-Null
 
 Write-Host "[schedule] registered. View via:"
 Write-Host "    Get-ScheduledTask -TaskName '$TaskName' | Get-ScheduledTaskInfo"
