@@ -38,6 +38,21 @@ OPENCLAUDE_HOME="${OPENCLAUDE_HOME:-$HOME/.openclaude}"
 BACKUP_WORKDIR="${BACKUP_WORKDIR:-$HOME/.claude-backup-work}"
 
 # --- helpers ---------------------------------------------------------------
+# Convert bash path (/c/Users/Dex/.claude) to Windows path (C:\Users\Dex\.claude)
+to_win_path() {
+  local p="$1"
+  # drive letter: /c/... -> C:\...
+  if [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+    local drive="${BASH_REMATCH[1]}"
+    local rest="${BASH_REMATCH[2]}"
+    rest="${rest//\//\\}"
+    printf '%s:\\%s\n' "${drive^}" "$rest"
+  else
+    p="${p//\//\\}"
+    printf '%s\n' "$p"
+  fi
+}
+
 log()  { printf '[backup] %s\n' "$*"; }
 fail() { printf '[backup][ERROR] %s\n' "$*" >&2; exit 1; }
 run()  {
@@ -54,6 +69,18 @@ gh auth status >/dev/null 2>&1 || fail "gh not authenticated (run: gh auth login
 
 # --- rsync-replacement via robocopy (native, fast on Windows) --------------
 # Falls back to cp -r when robocopy missing (WSL/Linux/macOS).
+# Excludes split: directory names go to /XD, file globs to /XF.
+#   robocopy is buggy with mixed args, so we build /XD and /XF separately.
+EXCLUDE_DIRS=(
+  ".git" "node_modules" "cache" "logs" "Cache" "Code Cache" "GPUCache"
+  "Service Worker" "backups" "paste-cache" "sessions" "projects"
+  "ShaderCache" "GrShaderCache"
+  "tasks" "teams" "telemetry"
+)
+EXCLUDE_FILES=(
+  "*.log" "*.tmp" "*.output" "*.lock" ".last-cleanup"
+)
+
 sync_dir() {
   local src="$1" dst="$2" label="$3"
   log "sync $label: $src -> $dst"
@@ -64,37 +91,34 @@ sync_dir() {
   fi
   mkdir -p "$dst"
 
-  local excludes=(
-    ".git" "node_modules" "*.log" "*.tmp"
-    "cache" "logs" "Cache" "Code Cache" "GPUCache" "Service Worker"
-    "backups" "paste-cache" "sessions" "projects"
-    "*.output" "*.lock" ".last-cleanup"
-  )
-
   if command -v robocopy >/dev/null 2>&1; then
-    # Convert to robocopy args
-    local rob_args=()
-    for e in "${excludes[@]}"; do rob_args+=("/XD" "$e" "/XF" "$e"); done
-    rob_args+=("/MIR" "/R:1" "/W:1" "/NFL" "/NDL" "/NJH" "/NP")
-    if (( DRY_RUN )); then
-      rob_args+=("/L")
-    fi
-    # robocopy exit codes 0-7 are success
-    robocopy "$src" "$dst" "${rob_args[@]}" >/dev/null 2>&1 || {
-      local rc=$?
-      (( rc >= 8 )) && fail "robocopy failed (rc=$rc) for $label"
-    }
+    local win_src win_dst
+    win_src="$(to_win_path "$src")"
+    win_dst="$(to_win_path "$dst")"
+    local rob_args=( /MIR /R:1 /W:1 /NFL /NDL /NJH /NP )
+    rob_args+=( /XD "${EXCLUDE_DIRS[@]}" )
+    rob_args+=( /XF "${EXCLUDE_FILES[@]}" )
+    if (( DRY_RUN )); then rob_args+=( /L ); fi
+    # MSYS_NO_PATHCONV=1 stops Git Bash from mangling /MIR -> C:\...\MIR
+    # robocopy rc 0-7 = clean success; 8 = files FAILED (real error);
+    # 9-15 = copied with warnings (locked files, mismatches) — acceptable for backup
+    MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
+      robocopy "$win_src" "$win_dst" "${rob_args[@]}" >/dev/null 2>&1 || {
+        local rc=$?
+        (( rc == 8 )) && fail "robocopy failed (rc=$rc) for $label — files could not be copied"
+        (( rc >= 16 )) && fail "robocopy serious error (rc=$rc) for $label"
+        log "  robocopy rc=$rc ($label, copied with warnings — likely locked files)"
+      }
+  elif command -v rsync >/dev/null 2>&1; then
+    local rs_args=( -a --delete )
+    local e
+    for e in "${EXCLUDE_DIRS[@]}" "${EXCLUDE_FILES[@]}"; do
+      rs_args+=( --exclude="$e" )
+    done
+    if (( DRY_RUN )); then rs_args+=( --dry-run ); fi
+    rsync "${rs_args[@]}" "$src/" "$dst/"
   else
-    # rsync if available
-    if command -v rsync >/dev/null 2>&1; then
-      local rs_args=( -a --delete )
-      for e in "${excludes[@]}"; do rs_args+=( --exclude="$e" ); done
-      if (( DRY_RUN )); then rs_args+=( --dry-run ); fi
-      rsync "${rs_args[@]}" "$src/" "$dst/"
-    else
-      # plain cp fallback (no exclusions)
-      run cp -rf "$src/." "$dst/"
-    fi
+    run cp -rf "$src/." "$dst/"
   fi
 }
 
@@ -133,6 +157,19 @@ clone_or_pull_repo() {
       git clone "https://github.com/$repo.git" "$dst" 2>&1 | sed 's/^/[backup]   /' \
         || fail "clone failed for $label"
     fi
+  fi
+}
+
+# Force-remove a workdir using PowerShell on Windows (rm -rf fails on locked .git/objects)
+rm_workdir_force() {
+  local p="$1"
+  if [[ -d "$p" ]]; then
+    local win_p; win_p="$(to_win_path "$p")"
+    powershell.exe -NoProfile -Command \
+      "Remove-Item -LiteralPath '$win_p' -Recurse -Force -ErrorAction SilentlyContinue" \
+      2>/dev/null || true
+    # also try rm -rf as best effort
+    rm -rf "$p" 2>/dev/null || true
   fi
 }
 

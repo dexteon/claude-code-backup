@@ -36,6 +36,19 @@ log()  { printf '[restore] %s\n' "$*"; }
 fail() { printf '[restore][ERROR] %s\n' "$*" >&2; exit 1; }
 run()  { if (( DRY_RUN )); then printf '[dry-run] %s\n' "$*"; else "$@"; fi; }
 
+to_win_path() {
+  local p="$1"
+  if [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+    local drive="${BASH_REMATCH[1]}"
+    local rest="${BASH_REMATCH[2]}"
+    rest="${rest//\//\\}"
+    printf '%s:\\%s\n' "${drive^}" "$rest"
+  else
+    p="${p//\//\\}"
+    printf '%s\n' "$p"
+  fi
+}
+
 restore_one() {
   local repo="$1" label="$2" target_dir="$3"
   local workdir="$BACKUP_WORKDIR/$label"
@@ -58,7 +71,11 @@ restore_one() {
   run mkdir -p "$target_dir"
 
   if command -v robocopy >/dev/null 2>&1; then
-    run robocopy "$workdir" "$target_dir" /MIR /R:1 /W:1 /NFL /NDL /NJH /NP \
+    local win_src win_dst
+    win_src="$(to_win_path "$workdir")"
+    win_dst="$(to_win_path "$target_dir")"
+    MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
+      run robocopy "$win_src" "$win_dst" /MIR /R:1 /W:1 /NFL /NDL /NJH /NP \
       >/dev/null 2>&1 || true
   elif command -v rsync >/dev/null 2>&1; then
     run rsync -a --delete "$workdir/" "$target_dir/"
