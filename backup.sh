@@ -111,9 +111,16 @@ sync_dir() {
     MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
       robocopy "$win_src" "$win_dst" "${rob_args[@]}" >/dev/null 2>&1 || {
         local rc=$?
-        (( rc == 8 )) && fail "robocopy failed (rc=$rc) for $label — files could not be copied"
-        (( rc >= 16 )) && fail "robocopy serious error (rc=$rc) for $label"
-        log "  robocopy rc=$rc ($label, copied with warnings — likely locked files)"
+        # robocopy rc 0-7 = clean success (1=copied, 2=extras, 3=both, ...).
+        # 8 = files FAILED; 9-15 = partial copy w/ failures (locked/mismatch);
+        # >=16 = fatal. Only 8+ is worth surfacing.
+        if (( rc >= 16 )); then
+          fail "robocopy serious error (rc=$rc) for $label"
+        elif (( rc == 8 )); then
+          fail "robocopy failed (rc=8) for $label — files could not be copied"
+        elif (( rc >= 9 )); then
+          log "  robocopy rc=$rc ($label, copied with warnings — likely locked files)"
+        fi
       }
   elif command -v rsync >/dev/null 2>&1; then
     local rs_args=( -a --delete )
@@ -126,6 +133,46 @@ sync_dir() {
   else
     run cp -rf "$src/." "$dst/"
   fi
+}
+
+# Back up project memory dirs. projects/ is excluded wholesale by sync_dir
+# (per-project session transcripts are large and volatile), but the small
+# projects/<p>/memory/ subdirs hold persistent knowledge worth keeping.
+# /MIR on each memory dir individually keeps it in sync without pulling in
+# the surrounding transcript files.
+sync_memory() {
+  local src="$1" dst="$2" label="$3"
+  [[ -d "$src/projects" ]] || return 0
+  local md
+  for md in "$src"/projects/*/memory; do
+    [[ -d "$md" ]] || continue
+    local rel="${md#"$src"/}"          # projects/<p>/memory
+    local dmd="$dst/$rel"
+    log "sync memory $label: $rel"
+    mkdir -p "$dmd"
+    if command -v robocopy >/dev/null 2>&1; then
+      local ws wd
+      ws="$(to_win_path "$md")"
+      wd="$(to_win_path "$dmd")"
+      local ra=( /MIR /R:1 /W:1 /NFL /NDL /NJH /NP )
+      (( DRY_RUN )) && ra+=( /L )
+      MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
+        robocopy "$ws" "$wd" "${ra[@]}" >/dev/null 2>&1 || {
+          local rc=$?
+          if (( rc >= 16 )); then
+            fail "robocopy serious error (rc=$rc) for $label memory"
+          elif (( rc == 8 )); then
+            fail "robocopy failed (rc=8) for $label memory"
+          fi
+        }
+    elif command -v rsync >/dev/null 2>&1; then
+      local rsa=( -a --delete )
+      (( DRY_RUN )) && rsa+=( --dry-run )
+      rsync "${rsa[@]}" "$md/" "$dmd/"
+    else
+      run cp -rf "$md/." "$dmd/"
+    fi
+  done
 }
 
 push_repo() {
@@ -190,6 +237,9 @@ clone_or_pull_repo "$OPENCLAUDE_BACKUP_REPO" "$OPENCLAUDE_WORKDIR" "openclaude"
 
 sync_dir "$CLAUDE_HOME"     "$CLAUDE_WORKDIR"     "claude"
 sync_dir "$OPENCLAUDE_HOME" "$OPENCLAUDE_WORKDIR" "openclaude"
+
+sync_memory "$CLAUDE_HOME"     "$CLAUDE_WORKDIR"     "claude"
+sync_memory "$OPENCLAUDE_HOME" "$OPENCLAUDE_WORKDIR" "openclaude"
 
 push_repo "$CLAUDE_WORKDIR"     "$CLAUDE_BACKUP_REPO"     "claude"
 push_repo "$OPENCLAUDE_WORKDIR" "$OPENCLAUDE_BACKUP_REPO" "openclaude"

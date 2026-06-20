@@ -35,7 +35,7 @@ Excluded by default because they are regenerated or volatile:
 - `.git/`, `node_modules/`, `*.log`, `*.tmp`, `*.lock`, `.last-cleanup`
 - Browser-style cache dirs (`Code Cache`, `GPUCache`, `Service Worker`)
 
-Note on `projects/`: the default exclude keeps `history.jsonl` but skips per-project conversation caches. If you want full conversation history backed up, edit the `EXCLUDE_DIRS` array in `backup.sh`.
+Note on `projects/`: the default exclude skips the large per-project conversation transcripts, but a second pass still backs up every `projects/<project>/memory/` directory, so your persistent memory files are preserved. If you want full conversation history backed up too, remove `projects` from the `EXCLUDE_DIRS` array in `backup.sh`.
 
 ---
 
@@ -92,6 +92,8 @@ bash setup.sh dexteon/my-claude-backup dexteon/my-openclaude-backup
 ```
 
 On Windows, files are copied with `robocopy /MIR` (the script falls back to `rsync` or `cp -r` on other platforms). Git add, commit, and push are per-repo. Commits are timestamped `backup <UTC ISO>`.
+
+After the main mirror, a second pass syncs every `projects/<project>/memory/` directory. This preserves your persistent memory files while the bulk per-project transcripts under `projects/` stay excluded.
 
 ---
 
@@ -152,9 +154,14 @@ Logs land in `backup.log` next to the scripts.
 
 # preview without writing
 ./restore.sh --dry-run
+
+# usage
+./restore.sh --help
 ```
 
 `restore.sh` is non-destructive. If the live target directory is non-empty, it renames it to `~/.claude.pre-restore.<timestamp>` before copying the repo over, so you can roll back.
+
+The backup repo's own `.git/` is excluded during restore, so the restored directory is clean config, not a git working copy.
 
 ---
 
@@ -202,7 +209,8 @@ If a token in a data repo leaks, treat it as a credential compromise: rotate the
 - Two source dirs, two repos. The original backs up `~/.claude` only; this one also covers `~/.openclaude`.
 - Windows-native. Uses `robocopy` instead of `rsync`, Git Bash instead of WSL, and Task Scheduler instead of `launchd` or `cron`.
 - Non-interactive setup. `setup.sh` accepts repo names as arguments so it can run inside an installer.
-- Non-destructive restore. `restore.sh` preserves the live directory with a timestamped `.pre-restore` rename.
+- Non-destructive restore. `restore.sh` preserves the live directory with a timestamped `.pre-restore` rename, and excludes the backup repo's `.git/` so the restored config dir stays clean.
+- Selective memory backup. Excludes the bulk per-project transcripts under `projects/` but preserves every `projects/<project>/memory/` directory.
 - No bundled pre-commit hooks. The surface is kept small. Add your own if you want to redact secrets before push.
 
 ---

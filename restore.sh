@@ -22,7 +22,10 @@ for arg in "$@"; do
     --dry-run) DRY_RUN=1 ;;
     claude) TARGET="claude" ;;
     openclaude) TARGET="openclaude" ;;
-    *) printf 'unknown arg: %s\n' "$arg" >&2; exit 2 ;;
+    -h|--help)
+      sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    *) printf 'unknown arg: %s (try --help)\n' "$arg" >&2; exit 2 ;;
   esac
 done
 
@@ -70,17 +73,19 @@ restore_one() {
   fi
   run mkdir -p "$target_dir"
 
+  # Exclude .git so the backup repo's git metadata never lands in the live dir.
   if command -v robocopy >/dev/null 2>&1; then
     local win_src win_dst
     win_src="$(to_win_path "$workdir")"
     win_dst="$(to_win_path "$target_dir")"
     MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
-      run robocopy "$win_src" "$win_dst" /MIR /R:1 /W:1 /NFL /NDL /NJH /NP \
+      run robocopy "$win_src" "$win_dst" /MIR /XD .git /R:1 /W:1 /NFL /NDL /NJH /NP \
       >/dev/null 2>&1 || true
   elif command -v rsync >/dev/null 2>&1; then
-    run rsync -a --delete "$workdir/" "$target_dir/"
+    run rsync -a --delete --exclude='.git' "$workdir/" "$target_dir/"
   else
     run cp -rf "$workdir/." "$target_dir/"
+    run rm -rf "$target_dir/.git"
   fi
   log "  $label restored."
 }
