@@ -6,7 +6,7 @@
 #   ./backup.sh            # use config from ./.env
 #   ./backup.sh --dry-run  # show what would happen, no commits/pushes
 #
-# Env (.env in same dir, or real env vars):
+# Env (.env in same dir; .env takes precedence over shell env, like dotenv):
 #   CLAUDE_BACKUP_REPO        e.g. dexteon/claude-config-backup
 #   OPENCLAUDE_BACKUP_REPO    e.g. dexteon/openclaude-config-backup
 #   CLAUDE_HOME               default: $HOME/.claude
@@ -25,9 +25,15 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
 fi
 
 DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=1
-fi
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    -h|--help)
+      sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    *) echo "unknown arg: $arg (try --help)" >&2; exit 2 ;;
+  esac
+done
 
 # --- required config -------------------------------------------------------
 : "${CLAUDE_BACKUP_REPO:?CLAUDE_BACKUP_REPO not set (run ./setup.sh first)}"
