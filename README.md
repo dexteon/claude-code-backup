@@ -78,7 +78,7 @@ bash setup.sh
 You can also pass repo names non-interactively:
 
 ```bash
-bash setup.sh dexteon/my-claude-backup dexteon/my-openclaude-backup
+bash setup.sh <you>/my-claude-backup <you>/my-openclaude-backup
 ```
 
 ---
@@ -170,8 +170,8 @@ The backup repo's own `.git/` is excluded during restore, so the restored direct
 Edit `.env`:
 
 ```bash
-CLAUDE_BACKUP_REPO=dexteon/claude-config-backup
-OPENCLAUDE_BACKUP_REPO=dexteon/openclaude-config-backup
+CLAUDE_BACKUP_REPO=<you>/claude-config-backup
+OPENCLAUDE_BACKUP_REPO=<you>/openclaude-config-backup
 CLAUDE_HOME=/c/Users/Dex/.claude
 OPENCLAUDE_HOME=/c/Users/Dex/.openclaude
 BACKUP_WORKDIR=/c/Users/Dex/.claude-backup-work

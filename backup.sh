@@ -7,8 +7,8 @@
 #   ./backup.sh --dry-run  # show what would happen, no commits/pushes
 #
 # Env (.env in same dir; .env takes precedence over shell env, like dotenv):
-#   CLAUDE_BACKUP_REPO        e.g. dexteon/claude-config-backup
-#   OPENCLAUDE_BACKUP_REPO    e.g. dexteon/openclaude-config-backup
+#   CLAUDE_BACKUP_REPO        e.g. <you>/claude-config-backup
+#   OPENCLAUDE_BACKUP_REPO    e.g. <you>/openclaude-config-backup
 #   CLAUDE_HOME               default: $HOME/.claude
 #   OPENCLAUDE_HOME           default: $HOME/.openclaude
 #   BACKUP_WORKDIR            default: $HOME/.claude-backup-work (clone roots)
