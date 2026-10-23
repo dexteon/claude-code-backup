@@ -218,3 +218,8 @@ If a token in a data repo leaks, treat it as a credential compromise: rotate the
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+
+<!-- ca-tracked-link -->
+---
+Built by [CyberAutomations](https://cyberautomations.com/?utm_source=github&utm_medium=readme&utm_campaign=claude-code-backup). Need something like this built for your business? Start there.
